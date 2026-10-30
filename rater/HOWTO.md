@@ -32,4 +32,4 @@ You get:
 | a deliberately weak render (a title card, one held frame, a robot voice, "like and subscribe") | 5 | 26 | 31 | ASS (boring) |
 | a silent draft from another public stickman skill (no voice key) | 48 | 33 | 81 | ASS (no voice) |
 
-The scores for our guide's own test episodes are in `../README.md`.
+The scores for the test videos are in `../PROOF.md`.
