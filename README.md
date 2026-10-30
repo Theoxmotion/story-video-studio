@@ -30,6 +30,8 @@ Claude installs the free tools itself:
 
 **How long it takes:** in our tests, one video took a fresh Claude Code session about 45 minutes from an empty folder, setup included, with nobody helping.
 
+**Music:** every video gets a dark background music bed made in code (no downloaded tracks), ducked under the voice. Say "no music" to turn it off.
+
 **Before you post:** listen to it once. Claude can't hear audio, so the voice and the mix are the one thing only you can check.
 
 **Want a Part 2?** In the same folder, say "make part 2" and how the vote went. The cast and the numbers carry over.
@@ -52,6 +54,8 @@ Each run used an empty folder, with "you pick" as the only answer. The ratings c
 | `test_videos/replication_B_night_desk.mp4` (61 s) | 55 / 55 | 110 / 120 | GOOD |
 | `test_videos/hero_floor7_part1.mp4` (70 s, male narrator) | 56 / 51 | 107 / 120 | GOOD |
 | for comparison: the viral reference series, Parts 1 to 3 | 45 to 49 / 48 to 51 | 96 to 99 | GOOD |
+
+The hero was rated before its music bed was added. With the music, voice clarity went from 0.867 to 0.871 and loudness stayed at -14.3 LUFS.
 
 ## Files
 

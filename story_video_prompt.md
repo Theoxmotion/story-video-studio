@@ -272,6 +272,7 @@ Before you voice anything, print a table with one row per item below: the line n
 5. **Sound.** Write `part1/sfx.json`, then run `python engine/sound.py part1 <TOTAL>`.
    - Put a sound on every action: a knock on "knocks", a thud on an impact, a hit on a reveal, a tick on counters, a hiss for the animal, a whoosh on fast moves.
    - Raise the bed under the turn and fade it on the end card.
+   - A dark music bed plays by default, made in code: a low drone, a slow minor-key pad, a soft pulse, and low booms on every `hit`. It sits 16 dB under the voice and ducks under every line. Set `"music": "off"` in `sfx.json` to drop it, or `"music": {"level": -18}` for quieter.
 6. **Render and encode.** Run `python engine/render.py part1/episode.html part1/frames`, then `python engine/encode.py part1`.
    - It writes `part1.mp4` (under 10 MB) and `sheet.jpg` (frame 0, then one frame every 3 s).
    - It also prints a pacing check. If it prints a PACING WARNING, fix those seconds (a new shot, a card or a move), then render and encode again.
@@ -564,7 +565,10 @@ asyncio.run(main())
 ```python
 """sound.py PART_DIR TOTAL_SECONDS : narration.wav + timing.js + sfx.json -> mix.wav (-14 LUFS, all sound synthesized)
 sfx.json = {"bed": [{"at": 0, "level": 0.6}, {"at": "knocks@14", "level": 1.0}],
-            "sfx": [{"at": "knocks@14", "type": "knock", "vol": 0.8}, {"at": 31.2, "type": "hit"}]}
+            "sfx": [{"at": "knocks@14", "type": "knock", "vol": 0.8}, {"at": 31.2, "type": "hit"}],
+            "music": "on"}   (or "off", or {"level": -16}: dB under the voice while it speaks)
+The music is a dark bed made here: a low drone, a slow minor-key pad, a soft pulse that quickens near the end,
+and low booms on every "hit" sound. It ducks under each line, swells a little in the gaps and with the "bed" cues.
 "at" is seconds, or "word@line" (first time that word is spoken in that 0-based line), optionally "+0.2" / "-0.1".
 types: knock thud hit whoosh tick hiss growl creak sting heartbeat rumble glass click drip alarm
 needs: pip install numpy imageio-ffmpeg"""
@@ -657,7 +661,46 @@ fx = np.zeros(N)
 for c in spec.get("sfx", []):
     s = int(when(c["at"]) * SR); x = make(c["type"]); x = x / (np.abs(x).max() + 1e-9)
     e = min(N, s + len(x)); fx[s:e] += float(c.get("vol", 0.7)) * x[:e - s]
-mix = voice + 0.22 * bed * level * duck + 0.45 * fx
+# music: a dark bed made here, never a downloaded track
+mcfg = spec.get("music", "on")
+music = np.zeros(N)
+if mcfg not in ("off", False, None, 0):
+    mdb = float(mcfg.get("level", -16)) if isinstance(mcfg, dict) else (float(mcfg) if isinstance(mcfg, (int, float)) and not isinstance(mcfg, bool) else -16.0)
+    chords = [(73.42, 146.83, 174.61, 220.0), (58.27, 116.54, 146.83, 174.61), (49.0, 98.0, 116.54, 146.83), (55.0, 110.0, 130.81, 164.81)]
+    seg = 8.0                                                   # D minor, B flat, G minor, A: 8 s each, slow crossfades
+    for k in range(int(TOTAL // seg) + 2):
+        f0 = chords[k % 4]; t0 = k * seg - 1.5; t1 = t0 + seg + 3.0
+        a, b = max(0, int(t0 * SR)), min(N, int(t1 * SR))
+        if a >= b: continue
+        tt = np.arange(a, b) / SR
+        wdw = np.sin(np.pi * np.clip((tt - t0) / (t1 - t0), 0, 1)) ** 2
+        pad = np.zeros(b - a)
+        for i, fr in enumerate(f0):
+            for det in (-0.7, 0.7):
+                ph = 2 * np.pi * (fr + det) * tt
+                pad += (np.sin(ph) + 0.3 * np.sin(2 * ph) + 0.1 * np.sin(3 * ph)) * (1.0 if i == 0 else 0.5)
+        music[a:b] += pad * wdw
+    music = band(music, 30, 700); music /= np.abs(music).max() + 1e-9
+    low = (np.sin(2 * np.pi * 36.71 * t) + 0.5 * np.sin(2 * np.pi * 73.42 * t + 0.7)) * (0.7 + 0.3 * np.sin(2 * np.pi * t / 11))
+    music = 0.7 * music + 0.35 * low
+    thump = tone(48, int(0.4 * SR), 34) * env(int(0.4 * SR), 0.004, 0.09)
+    tp = 1.0
+    while tp < TOTAL - 2.0:                                     # the pulse: 57 a minute, about 75 in the last 15 s
+        i = int(tp * SR); e = min(N, i + len(thump)); music[i:e] += 0.45 * thump[:e - i]
+        tp += 1.05 if tp < TOTAL - 17 else 0.8
+    boom = tone(41, int(2.5 * SR), 30) * env(int(2.5 * SR), 0.01, 0.8)
+    for c in spec.get("sfx", []):                               # low booms on the big beats
+        if c.get("type") == "hit":
+            i = int(when(c["at"]) * SR); e = min(N, i + len(boom)); music[i:e] += 0.8 * boom[:e - i]
+    vslow = np.convolve(np.abs(voice), np.ones(SR // 4) / (SR // 4), mode="same")
+    talking = vslow > 0.01
+    mduck = 1 - 0.37 * np.clip(vslow / 0.03, 0, 1)               # about 4 dB down while a line plays
+    music *= mduck * (0.75 + 0.3 * np.clip(level, 0, 1.2))       # swells with the bed cues and fades with it
+    vr = np.sqrt(np.mean(voice[talking] ** 2)) if talking.any() else 0.1
+    mr = np.sqrt(np.mean(music[talking] ** 2)) + 1e-9
+    music *= vr * 10 ** (mdb / 20) / mr                          # mdb below the voice while it speaks
+    print(f"music: {mdb:.0f} dB under the voice while it speaks")
+mix = voice + 0.22 * bed * level * duck + 0.45 * fx + music
 mix /= max(1.0, np.abs(mix).max() / 0.98)
 raw = os.path.join(part, "mix_raw.wav")
 with wave.open(raw, "wb") as w:
